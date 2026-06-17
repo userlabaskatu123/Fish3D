@@ -64,8 +64,6 @@ body { margin: 0; overflow: hidden; font-family: Arial; }
   display: none;
   z-index: 100;
   border: 3px solid #ffd700;
-  max-height: 80vh;
-  overflow-y: auto;
 }
 button {
   background: #4ade80;
@@ -92,11 +90,12 @@ select {
 WASD = move<br>
 Hold Left Click = build power & cast<br>
 Release = cast | Hold Left Click again = reel back<br>
-1-6 = Change bait<br>
+1-5 = Change bait<br>
 I = Inventory | B = Shop | U = Unlock Cursor<br>
 Bait:
 <select id="bait-select"></select><br>
-Starter bait: 20 Old Worms = small cheap fish only.
+Starter bait: 20 Old Worms = small cheap fish only.<br>
+Progress saves automatically.
 </div>
 <div id="tension">Tension: 0</div>
 <div id="castMeter">
@@ -111,6 +110,7 @@ Starter bait: 20 Old Worms = small cheap fish only.
   <h2>🎒 Inventory (<span id="money">0</span>$)</h2>
   <div id="inventory-list"></div>
   <button onclick="toggleInventory()">Close</button>
+  <button onclick="deleteSave()">Delete Save</button>
 </div>
 <div id="shop">
   <h2>🛒 Fish Market</h2>
@@ -388,13 +388,64 @@ const shopMoney = document.getElementById("shop-money");
 const shopList = document.getElementById("shop-list");
 const baitSelect = document.getElementById("bait-select");
 
+/* SAVE SYSTEM */
+const SAVE_KEY = "lithuanianFloatFishingSave_v1";
+
+function saveGame() {
+  const saveData = {
+    version: 1,
+    money,
+    inventory,
+    baitStock,
+    selectedBait
+  };
+
+  localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
+}
+
+function loadGame() {
+  const saved = localStorage.getItem(SAVE_KEY);
+  if (!saved) return;
+
+  try {
+    const data = JSON.parse(saved);
+
+    if (typeof data.money === "number") money = data.money;
+    if (Array.isArray(data.inventory)) inventory = data.inventory;
+
+    if (data.baitStock && typeof data.baitStock === "object") {
+      Object.keys(baitStock).forEach(bait => {
+        if (typeof data.baitStock[bait] === "number") {
+          baitStock[bait] = Math.max(0, Math.floor(data.baitStock[bait]));
+        }
+      });
+    }
+
+    if (data.selectedBait && baits.includes(data.selectedBait)) {
+      selectedBait = data.selectedBait;
+    }
+  } catch (err) {
+    console.warn("Save file could not be loaded:", err);
+  }
+}
+
+window.deleteSave = function() {
+  if (!confirm("Delete your saved progress and restart?")) return;
+  localStorage.removeItem(SAVE_KEY);
+  location.reload();
+};
+
+loadGame();
+
 baitSelect.addEventListener('change', e => {
   selectedBait = e.target.value;
   updateBaitUI();
+  saveGame();
 });
 baitSelect.addEventListener('mousedown', e => e.stopPropagation());
 baitSelect.addEventListener('click', e => e.stopPropagation());
 updateBaitUI();
+updateInventoryUI();
 
 /* UI CHECK */
 function isUIVisible() {
@@ -462,6 +513,7 @@ function releaseCast() {
   activeBait = selectedBait;
   baitStock[activeBait] -= 1;
   updateBaitUI();
+  saveGame();
 
   resetFishing(false);
   bobber = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
@@ -511,6 +563,7 @@ addEventListener('keydown', e => {
     if (baits[baitIndex] && (baitStock[baits[baitIndex]] || 0) > 0) {
       selectedBait = baits[baitIndex];
       updateBaitUI();
+      saveGame();
     }
   }
 
@@ -692,6 +745,7 @@ function addToInventory() {
   inventory.push(fishEntry);
   showCatch(fishEntry);
   updateInventoryUI();
+  saveGame();
 }
 function showCatch(fishEntry) {
   catchInfo.innerHTML = `<strong>${fishEntry.lithuanian}</strong> (${fishEntry.name})<br>Rarity: ${fishEntry.rarity}<br>Bait: ${fishEntry.bait}<br>Bait chance: ${fishEntry.chance}%<br>Weight: ${fishEntry.weight} kg<br>Length: ${fishEntry.length} cm<br>Value: $${fishEntry.value}`;
@@ -755,6 +809,7 @@ window.buyBait = function(bait) {
   updateBaitUI();
   updateShopUI();
   updateInventoryUI();
+  saveGame();
 };
 
 window.sellFish = function(index) {
@@ -765,6 +820,7 @@ window.sellFish = function(index) {
     updateShopUI();
     updateInventoryUI();
     updateBaitUI();
+    saveGame();
     alert(`Sold ${f.lithuanian} (${f.name}) for $${f.value}!`);
   }
 };
@@ -786,6 +842,8 @@ function toggleShop() {
 
 /* START */
 camera.position.set(0, 1.6, 8);
+setInterval(saveGame, 3000);
+window.addEventListener('beforeunload', saveGame);
 animate();
 
 /* RESIZE */
