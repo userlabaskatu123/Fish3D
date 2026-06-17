@@ -716,6 +716,62 @@ function hookFish() {
   scene.add(fishMesh);
 }
 
+/* PLAYER COLLISION */
+const PLAYER_RADIUS = 0.35;
+const POND_BLOCK_RADIUS = POND_RADIUS + PLAYER_RADIUS;
+const SHOP_BLOCK = {
+  minX: 12 - 2 - PLAYER_RADIUS,
+  maxX: 12 + 2 + PLAYER_RADIUS,
+  minZ: -8 - 2 - PLAYER_RADIUS,
+  maxZ: -8 + 2 + PLAYER_RADIUS
+};
+
+function isBlockedPosition(pos) {
+  const dx = pos.x - pond.position.x;
+  const dz = pos.z - pond.position.z;
+
+  // Block walking onto the pond water
+  if (dx * dx + dz * dz <= POND_BLOCK_RADIUS * POND_BLOCK_RADIUS) {
+    return true;
+  }
+
+  // Block walking through the fish market building
+  if (
+    pos.x >= SHOP_BLOCK.minX &&
+    pos.x <= SHOP_BLOCK.maxX &&
+    pos.z >= SHOP_BLOCK.minZ &&
+    pos.z <= SHOP_BLOCK.maxZ
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function moveWithCollision(forwardAmount, rightAmount) {
+  const player = controls.getObject();
+
+  if (forwardAmount !== 0) {
+    const oldPosition = player.position.clone();
+    controls.moveForward(forwardAmount);
+
+    if (isBlockedPosition(player.position)) {
+      player.position.copy(oldPosition);
+    }
+  }
+
+  if (rightAmount !== 0) {
+    const oldPosition = player.position.clone();
+    controls.moveRight(rightAmount);
+
+    if (isBlockedPosition(player.position)) {
+      player.position.copy(oldPosition);
+    }
+  }
+
+  player.position.y = 1.6;
+}
+
 /* ANIMATE */
 let time = 0;
 function animate() {
@@ -723,10 +779,15 @@ function animate() {
   time += 0.016;
 
   const speed = 0.08;
-  if (keys['KeyW']) controls.moveForward(speed);
-  if (keys['KeyS']) controls.moveForward(-speed);
-  if (keys['KeyA']) controls.moveRight(-speed);
-  if (keys['KeyD']) controls.moveRight(speed);
+  let forwardMove = 0;
+  let rightMove = 0;
+
+  if (keys['KeyW']) forwardMove += speed;
+  if (keys['KeyS']) forwardMove -= speed;
+  if (keys['KeyA']) rightMove -= speed;
+  if (keys['KeyD']) rightMove += speed;
+
+  moveWithCollision(forwardMove, rightMove);
 
   if (isCasting) {
     // Cancel instantly if the player moves the aim away from the pond while charging
