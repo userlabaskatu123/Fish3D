@@ -64,7 +64,7 @@ body { margin: 0; overflow: hidden; font-family: Arial; }
   width: 0%;
   background: linear-gradient(to right, #4ade80, #22c55e);
 }
-#catch, #shop, #inventory {
+#catch, #shop, #inventory, #testPanel {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -103,10 +103,13 @@ select {
 WASD = move<br>
 Hold Left Click = build power & cast<br>
 Release = cast | Hold Left Click again = reel back<br>
+Q/R = reel brake -/+<br>
 1-5 = Change bait<br>
 I = Inventory | E = Enter Market | U = Unlock Cursor<br>
 Bait:
 <select id="bait-select"></select><br>
+Line:
+<select id="line-select"></select><br>
 Starter bait: 20 Old Worms = small cheap fish only.<br>
 Progress saves automatically.
 </div>
@@ -132,6 +135,13 @@ Progress saves automatically.
   <div id="shop-list"></div>
   <button onclick="toggleShop()">Close Shop</button>
 </div>
+<div id="testPanel">
+  <h2>🧪 Secret Test Panel</h2>
+  <p>Free bait spawner</p>
+  <div id="test-panel-list"></div>
+  <button onclick="testGiveAllBait()">Give +25 All Bait</button>
+  <button onclick="toggleTestPanel()">Close</button>
+</div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -145,9 +155,13 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 const controls = new PointerLockControls(camera, document.body);
+
+// Stop the player from looking too far down, so the rod cannot go through the ground.
+controls.maxPolarAngle = Math.PI / 2 + 0.38;
+
 scene.add(controls.getObject());
 document.body.addEventListener('click', e => {
-  if (!e.target.closest('#ui, #catch, #shop, #inventory')) controls.lock();
+  if (!e.target.closest('#ui, #catch, #shop, #inventory, #testPanel')) controls.lock();
 });
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -253,6 +267,41 @@ scene.add(windowSill);
 const interiorLight = new THREE.PointLight(0xfff2cc, 1.4, 8);
 interiorLight.position.set(12, 2.1, -7.2);
 scene.add(interiorLight);
+
+// Secret test panel hidden behind the market house
+const secretPanelGroup = new THREE.Group();
+secretPanelGroup.position.set(12, 0, -10.18);
+scene.add(secretPanelGroup);
+
+const secretPanelBack = new THREE.Mesh(
+  new THREE.BoxGeometry(1.4, 1.0, 0.08),
+  new THREE.MeshStandardMaterial({ color: 0x171717, roughness: 0.7 })
+);
+secretPanelBack.position.set(0, 1.15, 0);
+secretPanelGroup.add(secretPanelBack);
+
+const secretPanelScreen = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.1, 0.7),
+  new THREE.MeshStandardMaterial({ color: 0x101f10, emissive: 0x00aa44, emissiveIntensity: 0.55 })
+);
+secretPanelScreen.position.set(0, 1.15, -0.045);
+secretPanelScreen.rotation.y = Math.PI;
+secretPanelGroup.add(secretPanelScreen);
+
+const secretPanelLabel = new THREE.Mesh(
+  new THREE.BoxGeometry(0.72, 0.06, 0.03),
+  new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00ff66, emissiveIntensity: 0.8 })
+);
+secretPanelLabel.position.set(0, 1.42, -0.09);
+secretPanelGroup.add(secretPanelLabel);
+
+const secretPanelButton = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.13, 0.13, 0.05, 18),
+  new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x661111, emissiveIntensity: 0.45 })
+);
+secretPanelButton.rotation.x = Math.PI / 2;
+secretPanelButton.position.set(0, 0.9, -0.1);
+secretPanelGroup.add(secretPanelButton);
 
 // Simple shopkeeper visible inside the building through the window
 const shopkeeperBody = new THREE.Mesh(
@@ -409,24 +458,10 @@ const rodGroup = new THREE.Group();
 rodGroup.add(rod);
 camera.add(rodGroup);
 
-let rodFollowAmount = 0;
-
-function updateRodFollow(frameScale = 1) {
-  const cameraPitch = camera.rotation.x;
-
-  // Stable rod follow:
-  // - starts correcting sooner when looking down,
-  // - clamps instead of over-rotating,
-  // - smooths movement so it does not jitter when moving camera up/down/sideways.
-  const downThreshold = -0.06;
-  const targetFollow = cameraPitch < downThreshold
-    ? Math.min((-cameraPitch + downThreshold) * 0.82, 0.42)
-    : 0;
-
-  rodFollowAmount += (targetFollow - rodFollowAmount) * Math.min(0.22 * frameScale, 1);
-
-  rodGroup.rotation.set(rodFollowAmount, 0, 0);
-  rodGroup.position.set(0, rodFollowAmount * 0.035, 0);
+function updateRodFollow() {
+  // Fixed first-person viewmodel. The camera look limit now prevents ground clipping.
+  rodGroup.rotation.set(0, 0, 0);
+  rodGroup.position.set(0, 0, 0);
 }
 
 /* FISHING LINE */
@@ -580,8 +615,35 @@ function updateIdleTackle() {
   bobber.rotation.set(0, 0, 0);
 }
 
+function getPondSurfacePoint(x, z) {
+  const waterY = WATER_Y + 0.05;
+  const dx = x - pond.position.x;
+  const dz = z - pond.position.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+  const maxDist = POND_RADIUS - 0.18;
+
+  if (dist <= maxDist) {
+    return {
+      point: new THREE.Vector3(x, waterY, z),
+      inside: true
+    };
+  }
+
+  const safeDx = dist > 0.0001 ? dx / dist : 1;
+  const safeDz = dist > 0.0001 ? dz / dist : 0;
+
+  return {
+    point: new THREE.Vector3(
+      pond.position.x + safeDx * maxDist,
+      waterY,
+      pond.position.z + safeDz * maxDist
+    ),
+    inside: false
+  };
+}
+
 function updateDanglingFloat(frameScale = 1) {
-  if (!bobber) return;
+  if (!bobber) return false;
 
   floatIsDangling = true;
 
@@ -607,11 +669,20 @@ function updateDanglingFloat(frameScale = 1) {
   if (bobber.position.y > tipWorld.y - 0.05) {
     bobber.position.y = tipWorld.y - 0.05;
   }
+
   bobber.rotation.set(0, 0, 0);
+
+  // If the dangling float itself hits grass/ground, cancel the cast cleanly.
+  const groundCheck = getPondSurfacePoint(bobber.position.x, bobber.position.z);
+  if (bobber.position.y <= WATER_Y + 0.05 && !groundCheck.inside) {
+    return "ground";
+  }
+
+  return false;
 }
 
 function updateFreeFloatPhysics(frameScale = 1) {
-  if (!bobber || !floatHasLanded) return;
+  if (!bobber || !floatHasLanded) return false;
 
   const tipWorld = getRodTipWorldPosition();
   const waterY = WATER_Y + 0.05;
@@ -621,25 +692,52 @@ function updateFreeFloatPhysics(frameScale = 1) {
     lineLength = tipWorld.distanceTo(bobber.position);
   }
 
+  const liftSlack = 0.42;
+
   // If the rod gets lifted high enough for the current line length,
   // the float leaves the water and hangs under the rod.
-  if (lineLength <= verticalToWater + 0.02) {
-    updateDanglingFloat(frameScale);
-    return;
+  if (lineLength <= verticalToWater + liftSlack) {
+    return updateDanglingFloat(frameScale);
   }
 
   // If the float was dangling and the player lowers the rod again,
   // put it onto the water under the CURRENT rod tip position.
+  // If the current position is grass/ground, cancel cleanly back to idle.
   if (floatIsDangling) {
-    surfaceTarget.set(tipWorld.x, waterY, tipWorld.z);
+    const drop = getPondSurfacePoint(tipWorld.x, tipWorld.z);
+    if (!drop.inside) {
+      return "ground";
+    }
+
+    surfaceTarget.copy(drop.point);
     hangVelocity.set(0, 0, 0);
     floatIsDangling = false;
   } else if (surfaceTarget.lengthSq() < 0.0001) {
-    surfaceTarget.set(bobber.position.x, waterY, bobber.position.z);
+    const start = getPondSurfacePoint(bobber.position.x, bobber.position.z);
+    surfaceTarget.copy(start.point);
+  }
+
+  // Side pull: when the rod tip moves sideways far enough, the line becomes
+  // tight and starts dragging the float across the water as well.
+  const tipSurface = getPondSurfacePoint(tipWorld.x, tipWorld.z).point;
+  const sideOffset = tipSurface.clone().sub(surfaceTarget);
+  const sideDistance = sideOffset.length();
+
+  const maxSideDistance = Math.sqrt(Math.max(0, lineLength * lineLength - verticalToWater * verticalToWater));
+  const sideSlack = Math.max(0.55, maxSideDistance - 0.15);
+
+  if (sideDistance > sideSlack) {
+    const pullAmount = Math.min(sideDistance - sideSlack, 0.12 * frameScale);
+    sideOffset.normalize().multiplyScalar(pullAmount);
+    surfaceTarget.add(sideOffset);
+
+    const safe = getPondSurfacePoint(surfaceTarget.x, surfaceTarget.z);
+    surfaceTarget.copy(safe.point);
   }
 
   bobber.position.set(surfaceTarget.x, waterY, surfaceTarget.z);
   bobber.rotation.set(0, 0, 0);
+  return false;
 }
 
 function applyFloatLinePhysics(reelAmount = 0, frameScale = 1) {
@@ -659,8 +757,10 @@ function applyFloatLinePhysics(reelAmount = 0, frameScale = 1) {
   // If the float has already landed and the rod is now high enough,
   // lift the float out of the water and let it dangle.
   const verticalToWater = Math.max(0, tipWorld.y - waterY);
-  if (floatHasLanded && lineLength <= verticalToWater + 0.02) {
-    updateDanglingFloat(frameScale);
+  const liftSlack = 0.42;
+  if (floatHasLanded && lineLength <= verticalToWater + liftSlack) {
+    const dangleResult = updateDanglingFloat(frameScale);
+    if (dangleResult === "ground") return "ground";
     return lineLength <= 0.6;
   }
 
@@ -671,16 +771,23 @@ function applyFloatLinePhysics(reelAmount = 0, frameScale = 1) {
 
   // If it was dangling and now comes back to the water while reeling,
   // place it under the CURRENT rod tip instead of the previous water spot.
+  // If that spot is grass, keep dangling and do not let it land there.
   if (floatIsDangling) {
-    surfaceTarget.set(tipWorld.x, waterY, tipWorld.z);
+    const drop = getPondSurfacePoint(tipWorld.x, tipWorld.z);
+    if (!drop.inside) {
+      return "ground";
+    }
+
+    surfaceTarget.copy(drop.point);
     hangVelocity.set(0, 0, 0);
     floatIsDangling = false;
   } else if (surfaceTarget.lengthSq() < 0.0001) {
-    surfaceTarget.set(bobber.position.x, waterY, bobber.position.z);
+    const start = getPondSurfacePoint(bobber.position.x, bobber.position.z);
+    surfaceTarget.copy(start.point);
   }
 
   // Pull the float across the water toward the rod tip's projection on the water.
-  const tipSurface = new THREE.Vector3(tipWorld.x, waterY, tipWorld.z);
+  const tipSurface = getPondSurfacePoint(tipWorld.x, tipWorld.z).point;
   const toTip = tipSurface.clone().sub(surfaceTarget);
   const moveStep = Math.min(toTip.length(), Math.max(0.03, reelAmount * 1.8));
 
@@ -716,6 +823,15 @@ const baitShop = {
   "Corn": { amount: 10, price: 18 },
   "Dough": { amount: 10, price: 10 }
 };
+
+const lineTypes = Array.from({ length: 50 }, (_, i) => i + 1);
+let selectedLineStrength = 1;
+let ownedLines = { 1: true };
+
+function getLinePrice(strength) {
+  if (strength <= 1) return 0;
+  return Math.round(strength * strength * 0.45 + strength * 2);
+}
 
 // Percentages are used as weighted catch chances.
 // Each bait column totals 100, so the selected bait controls the fish pool.
@@ -851,6 +967,61 @@ function chooseFishType(baitName = activeBait || selectedBait) {
   return fishTypes[0];
 }
 
+function createFishEntry(fish, baitName = activeBait || selectedBait) {
+  let minWeight = fish.weight[0];
+  let maxWeight = fish.weight[1];
+  let minLength = fish.length[0];
+  let maxLength = fish.length[1];
+
+  // Old Worm starter bait only gives the small version of small fish.
+  if (baitName === "Old Worm") {
+    maxWeight = minWeight + (maxWeight - minWeight) * 0.22;
+    maxLength = minLength + (maxLength - minLength) * 0.25;
+  }
+
+  const weight = parseFloat((minWeight + Math.random() * (maxWeight - minWeight)).toFixed(2));
+  const length = Math.floor(minLength + Math.random() * (maxLength - minLength));
+  let value = Math.round(fish.basePrice * (weight / 1.5) + (length - 30) * 0.1);
+
+  if (baitName === "Old Worm") value = Math.max(1, Math.min(3, value));
+  else value = Math.max(2, value);
+
+  return {
+    lithuanian: fish.lithuanian,
+    name: fish.name,
+    rarity: fish.rarity,
+    bait: baitName,
+    chance: getFishWeightForBait(fish, baitName),
+    weight,
+    length,
+    value
+  };
+}
+
+function getLineStrength() {
+  return selectedLineStrength;
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function getFishDifficulty() {
+  if (!currentFishEntry || !currentFishType) return 1;
+
+  // Bigger/heavier fish are harder to pull in.
+  // Small fish stay easy, carp/large bream/chub fight much harder.
+  const weight = Math.max(0.03, currentFishEntry.weight);
+  const sizePower = Math.sqrt(weight) * 0.72;
+  const speciesPower = currentFishType.scale * 0.25;
+
+  return Math.max(0.65, Math.min(4.6, 0.65 + sizePower + speciesPower));
+}
+
+function adjustReelBrake(amount) {
+  reelBrake = Math.max(0, Math.min(100, reelBrake + amount));
+}
+
 function hasSelectedBait() {
   return (baitStock[selectedBait] || 0) > 0;
 }
@@ -875,6 +1046,26 @@ function updateBaitUI() {
   baitSelect.value = selectedBait;
 }
 
+function updateLineUI() {
+  if (!lineSelect) return;
+
+  if (!ownedLines[selectedLineStrength]) {
+    selectedLineStrength = 1;
+  }
+
+  lineSelect.innerHTML = '';
+  lineTypes.forEach(strength => {
+    if (!ownedLines[strength]) return;
+
+    const option = document.createElement('option');
+    option.value = strength;
+    option.textContent = `${strength}kg test`;
+    lineSelect.appendChild(option);
+  });
+
+  lineSelect.value = selectedLineStrength;
+}
+
 /* STATE */
 let bobber = null, fishMesh = null, velocity = new THREE.Vector3();
 let state = "idle";
@@ -882,12 +1073,18 @@ let biteTimer = 0, biteActionTimer = 0, tension = 0, bobPhase = 0, castPower = 0
 let lineLength = 0;
 let floatHasLanded = false;
 let floatIsDangling = false;
+let returningFromGround = false;
 let surfaceTarget = new THREE.Vector3();
 let hangVelocity = new THREE.Vector3();
 let currentFishType = null;
+let currentFishEntry = null;
 let money = 0, inventory = [];
 let keys = {};
 let isCasting = false;
+
+let reelBrake = 45;
+let fishFightTimer = 0;
+let fishSideSeed = 0;
 
 const uiTension = document.getElementById("tension");
 const castMeter = document.getElementById("castMeter");
@@ -899,8 +1096,11 @@ const inventoryList = document.getElementById("inventory-list");
 const shopUI = document.getElementById("shop");
 const shopMoney = document.getElementById("shop-money");
 const shopList = document.getElementById("shop-list");
+const testPanelUI = document.getElementById("testPanel");
+const testPanelList = document.getElementById("test-panel-list");
 const marketPrompt = document.getElementById("marketPrompt");
 const baitSelect = document.getElementById("bait-select");
+const lineSelect = document.getElementById("line-select");
 
 /* SAVE SYSTEM */
 const SAVE_KEY = "lithuanianFloatFishingSave_v1";
@@ -913,7 +1113,9 @@ function saveGame() {
     money,
     inventory,
     baitStock,
-    selectedBait
+    selectedBait,
+    ownedLines,
+    selectedLineStrength
   };
 
   localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
@@ -940,6 +1142,20 @@ function loadGame() {
     if (data.selectedBait && baits.includes(data.selectedBait)) {
       selectedBait = data.selectedBait;
     }
+
+    if (data.ownedLines && typeof data.ownedLines === "object") {
+      ownedLines = { 1: true };
+      Object.keys(data.ownedLines).forEach(strength => {
+        const kg = Number(strength);
+        if (lineTypes.includes(kg) && data.ownedLines[strength]) {
+          ownedLines[kg] = true;
+        }
+      });
+    }
+
+    if (typeof data.selectedLineStrength === "number" && ownedLines[data.selectedLineStrength]) {
+      selectedLineStrength = data.selectedLineStrength;
+    }
   } catch (err) {
     console.warn("Save file could not be loaded:", err);
   }
@@ -957,12 +1173,15 @@ window.deleteSave = function() {
   money = 0;
   inventory = [];
   selectedBait = "Old Worm";
+  selectedLineStrength = 1;
+  ownedLines = { 1: true };
 
   Object.keys(baitStock).forEach(bait => {
     baitStock[bait] = bait === "Old Worm" ? 20 : 0;
   });
 
   updateBaitUI();
+  updateLineUI();
   updateInventoryUI();
   updateShopUI();
 
@@ -978,37 +1197,58 @@ baitSelect.addEventListener('change', e => {
 });
 baitSelect.addEventListener('mousedown', e => e.stopPropagation());
 baitSelect.addEventListener('click', e => e.stopPropagation());
+
+lineSelect.addEventListener('change', e => {
+  const strength = Number(e.target.value);
+  if (!ownedLines[strength]) return;
+  selectedLineStrength = strength;
+  updateLineUI();
+  updateShopUI();
+  saveGame();
+});
+lineSelect.addEventListener('mousedown', e => e.stopPropagation());
+lineSelect.addEventListener('click', e => e.stopPropagation());
+
 updateBaitUI();
+updateLineUI();
 updateInventoryUI();
 
 /* UI CHECK */
 function isUIVisible() {
   return catchUI.style.display === 'block' ||
          inventoryUI.style.display === 'block' ||
-         shopUI.style.display === 'block';
+         shopUI.style.display === 'block' ||
+         testPanelUI.style.display === 'block';
 }
 
-/* POND AIM CHECK */
-function isValidCast() {
+/* CAST AIM CHECK */
+function getAimGroundHit() {
   const origin = new THREE.Vector3();
   const dir = new THREE.Vector3();
 
   camera.getWorldPosition(origin);
   camera.getWorldDirection(dir);
 
-  // Must look down enough for the aim line to hit the water plane
-  if (dir.y >= -0.01) return false;
+  // If looking almost straight up, there is no useful cast target.
+  if (dir.y >= -0.01) return null;
 
-  // Find where the crosshair/aim ray hits the pond water height
   const t = (WATER_Y - origin.y) / dir.y;
-  if (t < 0 || t > 35) return false;
+  if (t < 0 || t > 55) return null;
 
-  const hitPoint = origin.clone().add(dir.multiplyScalar(t));
+  return origin.clone().add(dir.multiplyScalar(t));
+}
 
-  const dx = hitPoint.x - pond.position.x;
-  const dz = hitPoint.z - pond.position.z;
+function isValidCast() {
+  const hit = getAimGroundHit();
+  if (!hit) return false;
 
-  return dx * dx + dz * dz <= POND_RADIUS * POND_RADIUS;
+  const dx = hit.x - camera.position.x;
+  const dz = hit.z - camera.position.z;
+  const groundDistance = Math.sqrt(dx * dx + dz * dz);
+
+  // Prevent the camera/line glitch when aiming almost straight down at your feet.
+  // Longer ground casts still work and will return to you if they hit grass.
+  return groundDistance > 2.2;
 }
 
 /* CASTING */
@@ -1016,7 +1256,7 @@ function startCast() {
   if (state !== "idle" || isUIVisible()) return;
   if (!hasSelectedBait()) return;
 
-  // Do not even start the cast bar or rod animation unless aiming at the pond
+  // Do not start the cast bar if aiming too high.
   if (!isValidCast()) return;
 
   isCasting = true;
@@ -1030,7 +1270,7 @@ function releaseCast() {
   castMeter.style.display = 'none';
   if (castPower < 15) return;
 
-  // If the player looked away from the pond while charging, cancel silently
+  // If the player aims too high while charging, cancel silently.
   if (!isValidCast()) {
     castPower = 0;
     rod.rotation.x = -1.35;
@@ -1067,13 +1307,14 @@ function releaseCast() {
   camera.getWorldDirection(dir);
   bobber.position.copy(camera.position);
   bobber.position.y -= 0.25;
-  const power = Math.min(castPower / 100, 1.3);
-  velocity.copy(dir.multiplyScalar(0.2 * power));
-  velocity.y += 0.13 * power;
+  const power = Math.min(castPower / 100, 1.45);
+  velocity.copy(dir.multiplyScalar(0.38 * power));
+  velocity.y += 0.20 * power;
   scene.add(bobber);
   lineLength = getRodTipWorldPosition().distanceTo(bobber.position);
   floatHasLanded = false;
   floatIsDangling = false;
+  returningFromGround = false;
   surfaceTarget.set(0, 0, 0);
   hangVelocity.set(0, 0, 0);
   createFishingLine();
@@ -1090,7 +1331,7 @@ addEventListener('mousedown', e => {
   if (e.target.closest('#ui') || e.target.tagName === 'BUTTON' || isUIVisible()) return;
 
   if (state === "idle") {
-    // No mouse hold / no cast bar / no rod animation unless bait exists and pond is targeted
+    // No mouse hold / cast bar unless bait exists and the aim is usable.
     if (!hasSelectedBait()) return;
     if (!isValidCast()) return;
     mouseDown = true;
@@ -1118,17 +1359,84 @@ addEventListener('keydown', e => {
     }
   }
 
+  if (e.code === 'KeyQ') adjustReelBrake(-5);
+  if (e.code === 'KeyR') adjustReelBrake(5);
+
   if (e.code === 'KeyI') toggleInventory();
   if (e.code === 'KeyE' && isNearMarket()) toggleShop();
+  if (e.code === 'KeyT' && isNearTestPanel()) toggleTestPanel();
   if (e.code === 'KeyU') controls.unlock();
 });
 addEventListener('keyup', e => keys[e.code] = false);
+
+function updateFishFight(frameScale = 1, isReeling = false) {
+  if (!bobber || state !== "hooked" || !currentFishEntry) return;
+
+  const waterY = WATER_Y + 0.05;
+  const difficulty = getFishDifficulty();
+  const brakeFactor = reelBrake / 100;
+
+  fishFightTimer += 0.03 * frameScale * (0.8 + difficulty * 0.25);
+
+  const away = new THREE.Vector3(
+    bobber.position.x - camera.position.x,
+    0,
+    bobber.position.z - camera.position.z
+  );
+
+  if (away.lengthSq() < 0.001) {
+    camera.getWorldDirection(away);
+    away.y = 0;
+  }
+
+  away.normalize();
+
+  const side = new THREE.Vector3(-away.z, 0, away.x)
+    .multiplyScalar(Math.sin(fishFightTimer + fishSideSeed) * 0.55);
+
+  const pullDir = away.multiplyScalar(0.85).add(side);
+  if (pullDir.lengthSq() > 0.0001) pullDir.normalize();
+
+  // Low brake lets the fish take line. High brake pulls harder but increases tension.
+  const fishPull = (0.006 + difficulty * 0.0045) * frameScale;
+  const brakeResistance = 0.45 + brakeFactor * 0.65;
+  const pullAmount = isReeling ? fishPull * Math.max(0.15, 1.1 - brakeResistance) : fishPull;
+
+  if (pullAmount > 0.0001) {
+    const next = bobber.position.clone().add(pullDir.multiplyScalar(pullAmount));
+    const safe = getPondSurfacePoint(next.x, next.z);
+
+    if (safe.inside) {
+      bobber.position.copy(safe.point);
+      surfaceTarget.copy(safe.point);
+      lineLength += pullAmount * (isReeling ? 0.25 : 0.9);
+    }
+  }
+
+  if (isReeling) {
+    tension += (0.10 + brakeFactor * 0.42) * difficulty * frameScale;
+  } else {
+    // The fish can still create small tension spikes while taking line.
+    tension += Math.max(0, difficulty - 1.0) * 0.035 * frameScale;
+  }
+}
 
 function hookFish() {
   if (!bobber || state === "hooked") return;
 
   state = "hooked";
   currentFishType = chooseFishType(activeBait || selectedBait);
+  currentFishEntry = createFishEntry(currentFishType, activeBait || selectedBait);
+  fishSideSeed = Math.random() * Math.PI * 2;
+  fishFightTimer = 0;
+
+  // Keep the float on the water when the fish is hooked.
+  const hookPoint = getPondSurfacePoint(bobber.position.x, bobber.position.z);
+  bobber.position.copy(hookPoint.point);
+  surfaceTarget.copy(hookPoint.point);
+  floatHasLanded = true;
+  floatIsDangling = false;
+  lineLength = Math.max(lineLength, getRodTipWorldPosition().distanceTo(bobber.position));
 
   if (fishMesh) scene.remove(fishMesh);
 
@@ -1197,6 +1505,56 @@ function moveWithCollision(forwardAmount, rightAmount) {
   player.position.y = 1.6;
 }
 
+function startFloatReturnToPlayer() {
+  if (!bobber) {
+    returnToDefaultNotCastedState();
+    return;
+  }
+
+  mouseDown = false;
+  isCasting = false;
+  castPower = 0;
+  castBar.style.width = '0%';
+  castMeter.style.display = 'none';
+
+  if (fishMesh) {
+    scene.remove(fishMesh);
+    fishMesh = null;
+  }
+
+  velocity.set(0, 0, 0);
+  hangVelocity.set(0, 0, 0);
+  lineLength = 0;
+  floatHasLanded = false;
+  floatIsDangling = false;
+  returningFromGround = true;
+  surfaceTarget.set(0, 0, 0);
+  tension = 0;
+  state = "returning";
+}
+
+function returnToDefaultNotCastedState() {
+  mouseDown = false;
+  isCasting = false;
+  castPower = 0;
+  castBar.style.width = '0%';
+  castMeter.style.display = 'none';
+
+  velocity.set(0, 0, 0);
+  hangVelocity.set(0, 0, 0);
+  lineLength = 0;
+  floatHasLanded = false;
+  floatIsDangling = false;
+  returningFromGround = false;
+  surfaceTarget.set(0, 0, 0);
+  tension = 0;
+
+  rod.rotation.set(-1.35, 0.12, -0.18);
+  updateRodFollow();
+
+  resetFishing();
+}
+
 /* ANIMATE */
 let lastFrameTime = 0;
 let time = 0;
@@ -1224,10 +1582,10 @@ function animate(now = 0) {
 
   moveWithCollision(forwardMove, rightMove);
   updateMarketPrompt();
-  updateRodFollow(frameScale);
+  updateRodFollow();
 
   if (isCasting) {
-    // Cancel instantly if the player moves the aim away from the pond while charging
+    // Cancel instantly if the player aims too high while charging.
     if (!isValidCast()) {
       isCasting = false;
       castPower = 0;
@@ -1248,10 +1606,12 @@ function animate(now = 0) {
     if (mouseDown) {
       // Reel the float across the surface first; once the line becomes short
       // enough, the float lifts out and dangles below the rod.
-      const reeledIn = applyFloatLinePhysics(0.18 * frameScale, frameScale);
+      const reelResult = applyFloatLinePhysics(0.18 * frameScale, frameScale);
       velocity.set(0, 0, 0);
 
-      if (reeledIn) {
+      if (reelResult === "ground") {
+        startFloatReturnToPlayer();
+      } else if (reelResult === true) {
         resetFishing();
       }
     } else {
@@ -1262,21 +1622,46 @@ function animate(now = 0) {
         velocity.multiplyScalar(Math.pow(0.982, frameScale));
 
         if (bobber.position.y <= WATER_Y + 0.05) {
-          bobber.position.y = WATER_Y + 0.05;
-          velocity.set(0, 0, 0);
-          floatHasLanded = true;
-          lineLength = Math.max(lineLength, getRodTipWorldPosition().distanceTo(bobber.position));
-          surfaceTarget.set(bobber.position.x, WATER_Y + 0.05, bobber.position.z);
+          const landing = getPondSurfacePoint(bobber.position.x, bobber.position.z);
+
+          // If the float hits grass/ground instead of the pond, cancel the cast
+          // and return to the not-casted idle state.
+          if (!landing.inside) {
+            const playerFlat = camera.position.clone();
+            playerFlat.y = WATER_Y + 0.05;
+
+            bobber.position.y = WATER_Y + 0.05;
+
+            // If it hits ground basically at your feet, skip the return state.
+            // This removes the camera/line glitch when looking straight down.
+            if (bobber.position.distanceTo(playerFlat) < 2.2) {
+              returnToDefaultNotCastedState();
+            } else {
+              startFloatReturnToPlayer();
+            }
+          } else {
+            bobber.position.copy(landing.point);
+            velocity.set(0, 0, 0);
+            floatHasLanded = true;
+            floatIsDangling = false;
+            lineLength = Math.max(lineLength, getRodTipWorldPosition().distanceTo(bobber.position));
+            surfaceTarget.copy(landing.point);
+          }
         }
       } else {
         // After landing, let the float either rest on the water or hang if the
-        // rod is lifted high enough.
-        updateFreeFloatPhysics(frameScale);
-        biteTimer -= deltaTime;
-        if (biteTimer <= 0) {
-          biteActionTimer = 2.0;
-          bobPhase = Math.random() * 10;
-          state = "biting";
+        // rod is lifted high enough. If it touched ground, it resets to idle
+        // and this frame stops using the old cast state.
+        const physicsResult = updateFreeFloatPhysics(frameScale);
+        if (physicsResult === "ground") {
+          startFloatReturnToPlayer();
+        } else if (!physicsResult && state === "floating") {
+          biteTimer -= deltaTime;
+          if (biteTimer <= 0) {
+            biteActionTimer = 2.0;
+            bobPhase = Math.random() * 10;
+            state = "biting";
+          }
         }
       }
     }
@@ -1297,32 +1682,68 @@ function animate(now = 0) {
   }
 
   if (state === "hooked" && bobber) {
+    const difficulty = getFishDifficulty();
+    const brakeFactor = reelBrake / 100;
+
     if (mouseDown) {
-      tension += 0.32 * frameScale;
-      const reeledIn = applyFloatLinePhysics(0.22 * frameScale, frameScale);
+      // Higher brake pulls harder, but it raises tension much faster.
+      // Bigger fish reduce reel speed and fight back more.
+      const reelSpeed = (0.09 + brakeFactor * 0.24) / difficulty;
+      const reelResult = applyFloatLinePhysics(reelSpeed * frameScale, frameScale);
 
-      if (fishMesh) {
-        fishMesh.position.lerp(bobber.position, Math.min(0.25 * frameScale, 1));
-        fishMesh.position.y = bobber.position.y - 0.35;
-      }
+      if (reelResult === "ground") {
+        startFloatReturnToPlayer();
+      } else {
+        updateFishFight(frameScale, true);
 
-      if (reeledIn) {
-        addToInventory();
-        resetFishing();
+        if (fishMesh) {
+          fishMesh.position.lerp(bobber.position, Math.min(0.2 * frameScale, 1));
+          fishMesh.position.y = bobber.position.y - 0.35;
+        }
+
+        if (reelResult === true) {
+          addToInventory();
+          resetFishing();
+        }
       }
     } else {
-      tension = Math.max(0, tension - 0.08 * frameScale);
+      updateFishFight(frameScale, false);
+      tension = Math.max(0, tension - (0.11 + (1 - brakeFactor) * 0.06) * frameScale);
     }
-    if (tension > 18) {
+
+    if (tension > getLineStrength()) {
       alert("💥 Line broke!");
       resetFishing();
+    }
+  }
+
+  if (state === "returning" && bobber) {
+    const target = camera.position.clone();
+    target.y = WATER_Y + 0.05;
+
+    const toPlayer = target.clone().sub(bobber.position);
+    const dist = toPlayer.length();
+
+    if (dist > 0.01) {
+      toPlayer.normalize();
+      bobber.position.add(toPlayer.multiplyScalar(Math.min(dist, 0.12 * frameScale)));
+    }
+
+    bobber.position.y = WATER_Y + 0.05;
+    bobber.rotation.set(0, 0, 0);
+
+    if (dist < 1.15) {
+      returnToDefaultNotCastedState();
     }
   }
 
   if (state === "idle" && bobber) updateIdleTackle();
   if (fishingLine) updateFishingLine();
 
-  uiTension.textContent = `Tension: ${tension.toFixed(1)}`;
+  const fishText = currentFishEntry && state === "hooked"
+    ? `<br>Fish: ${currentFishEntry.weight}kg`
+    : "";
+  uiTension.innerHTML = `Tension: ${tension.toFixed(1)} / ${getLineStrength()}kg<br>Brake: ${reelBrake}%<br>Line: ${selectedLineStrength}kg test${fishText}`;
   renderer.render(scene, camera);
 }
 
@@ -1338,6 +1759,9 @@ function resetFishing(clearActiveBait = true) {
   biteTimer = 0;
   biteActionTimer = 0;
   lineLength = 0;
+  currentFishType = null;
+  currentFishEntry = null;
+  fishFightTimer = 0;
   floatHasLanded = false;
   floatIsDangling = false;
   surfaceTarget.set(0, 0, 0);
@@ -1347,42 +1771,15 @@ function resetFishing(clearActiveBait = true) {
   attachIdleTackle();
 }
 function addToInventory() {
-  if (!currentFishType) return;
+  if (!currentFishEntry) return;
 
-  const caughtBait = activeBait || selectedBait;
-  let minWeight = currentFishType.weight[0];
-  let maxWeight = currentFishType.weight[1];
-  let minLength = currentFishType.length[0];
-  let maxLength = currentFishType.length[1];
-
-  // Old Worm starter bait only gives the small version of small fish.
-  if (caughtBait === "Old Worm") {
-    maxWeight = minWeight + (maxWeight - minWeight) * 0.22;
-    maxLength = minLength + (maxLength - minLength) * 0.25;
-  }
-
-  const weight = parseFloat((minWeight + Math.random() * (maxWeight - minWeight)).toFixed(2));
-  const length = Math.floor(minLength + Math.random() * (maxLength - minLength));
-  let value = Math.round(currentFishType.basePrice * (weight / 1.5) + (length - 30) * 0.1);
-
-  if (caughtBait === "Old Worm") value = Math.max(1, Math.min(3, value));
-  else value = Math.max(2, value);
-
-  const fishEntry = {
-    lithuanian: currentFishType.lithuanian,
-    name: currentFishType.name,
-    rarity: currentFishType.rarity,
-    bait: caughtBait,
-    chance: getFishWeightForBait(currentFishType, caughtBait),
-    weight,
-    length,
-    value
-  };
+  const fishEntry = currentFishEntry;
   inventory.push(fishEntry);
   showCatch(fishEntry);
   updateInventoryUI();
   saveGame();
 }
+
 function showCatch(fishEntry) {
   catchInfo.innerHTML = `<strong>${fishEntry.lithuanian}</strong> (${fishEntry.name})<br>Rarity: ${fishEntry.rarity}<br>Bait: ${fishEntry.bait}<br>Bait chance: ${fishEntry.chance}%<br>Weight: ${fishEntry.weight} kg<br>Length: ${fishEntry.length} cm<br>Value: $${fishEntry.value}`;
   catchUI.style.display = "block";
@@ -1396,6 +1793,11 @@ function updateInventoryUI() {
     div.textContent = `${f.lithuanian} (${f.name}) — ${f.rarity} — bait: ${f.bait} (${f.chance}%) — ${f.weight}kg / ${f.length}cm`;
     inventoryList.appendChild(div);
   });
+  const lineInfo = document.createElement('div');
+  lineInfo.style.margin = '10px 0';
+  lineInfo.textContent = `Equipped line: ${selectedLineStrength}kg test`;
+  inventoryList.prepend(lineInfo);
+
   document.getElementById("money").textContent = money;
 }
 function updateShopUI() {
@@ -1412,6 +1814,47 @@ function updateShopUI() {
     div.innerHTML = `${bait}: ${baitStock[bait] || 0} owned <button onclick="buyBait('${bait}')">Buy ${item.amount} for $${item.price}</button>`;
     shopList.appendChild(div);
   });
+
+  const lineTitle = document.createElement('h3');
+  lineTitle.textContent = 'Buy / change fishing line';
+  lineTitle.style.marginTop = '16px';
+  shopList.appendChild(lineTitle);
+
+  const currentLine = document.createElement('p');
+  currentLine.textContent = `Equipped line: ${selectedLineStrength}kg test`;
+  shopList.appendChild(currentLine);
+
+  const lineControls = document.createElement('div');
+  lineControls.style.margin = '8px 0';
+
+  const lineShopSelect = document.createElement('select');
+  lineShopSelect.id = 'line-shop-select';
+
+  lineTypes.forEach(strength => {
+    const option = document.createElement('option');
+    option.value = strength;
+    option.textContent = ownedLines[strength]
+      ? `${strength}kg test — owned`
+      : `${strength}kg test — $${getLinePrice(strength)}`;
+    lineShopSelect.appendChild(option);
+  });
+
+  lineShopSelect.value = selectedLineStrength;
+  lineShopSelect.addEventListener('mousedown', e => e.stopPropagation());
+  lineShopSelect.addEventListener('click', e => e.stopPropagation());
+
+  const buyLineButton = document.createElement('button');
+  buyLineButton.textContent = 'Buy selected line';
+  buyLineButton.onclick = () => buyLine(Number(lineShopSelect.value));
+
+  const equipLineButton = document.createElement('button');
+  equipLineButton.textContent = 'Equip selected line';
+  equipLineButton.onclick = () => equipLine(Number(lineShopSelect.value));
+
+  lineControls.appendChild(lineShopSelect);
+  lineControls.appendChild(buyLineButton);
+  lineControls.appendChild(equipLineButton);
+  shopList.appendChild(lineControls);
 
   const fishTitle = document.createElement('h3');
   fishTitle.textContent = 'Sell fish';
@@ -1448,6 +1891,42 @@ window.buyBait = function(bait) {
   saveGame();
 };
 
+window.buyLine = function(strength) {
+  if (!lineTypes.includes(strength)) return;
+
+  if (ownedLines[strength]) {
+    equipLine(strength);
+    return;
+  }
+
+  const price = getLinePrice(strength);
+  if (money < price) {
+    alert(`Not enough money. ${strength}kg line costs $${price}.`);
+    return;
+  }
+
+  money -= price;
+  ownedLines[strength] = true;
+  selectedLineStrength = strength;
+
+  updateLineUI();
+  updateShopUI();
+  updateInventoryUI();
+  saveGame();
+};
+
+window.equipLine = function(strength) {
+  if (!ownedLines[strength]) {
+    alert(`You need to buy ${strength}kg line first.`);
+    return;
+  }
+
+  selectedLineStrength = strength;
+  updateLineUI();
+  updateShopUI();
+  saveGame();
+};
+
 window.sellFish = function(index) {
   const f = inventory[index];
   if (f) {
@@ -1469,13 +1948,64 @@ function isNearMarket() {
   return camera.position.distanceTo(new THREE.Vector3(12, 1.6, -8)) <= 5.5;
 }
 
+function isNearTestPanel() {
+  const panelPos = new THREE.Vector3(12, 1.6, -10.75);
+  return camera.position.distanceTo(panelPos) <= 2.6 && camera.position.z < -9.55;
+}
+
 function updateMarketPrompt() {
-  if (isNearMarket() && !isUIVisible()) {
+  if (isNearTestPanel() && !isUIVisible()) {
+    marketPrompt.textContent = 'Secret test panel - Press T';
+    marketPrompt.style.display = 'block';
+  } else if (isNearMarket() && !isUIVisible()) {
+    marketPrompt.textContent = 'Press E to enter market';
     marketPrompt.style.display = 'block';
   } else {
     marketPrompt.style.display = 'none';
   }
 }
+
+function updateTestPanelUI() {
+  testPanelList.innerHTML = '';
+
+  baits.forEach(bait => {
+    const div = document.createElement('div');
+    div.style.margin = '8px 0';
+    div.innerHTML = `${bait}: ${baitStock[bait] || 0} owned <button onclick="testGiveBait('${bait}', 10)">+10</button> <button onclick="testGiveBait('${bait}', 50)">+50</button>`;
+    testPanelList.appendChild(div);
+  });
+}
+
+window.testGiveBait = function(bait, amount) {
+  if (!baits.includes(bait)) return;
+  baitStock[bait] = (baitStock[bait] || 0) + amount;
+  selectedBait = bait;
+  updateBaitUI();
+  updateTestPanelUI();
+  saveGame();
+};
+
+window.testGiveAllBait = function() {
+  baits.forEach(bait => {
+    baitStock[bait] = (baitStock[bait] || 0) + 25;
+  });
+  selectedBait = baits[0];
+  updateBaitUI();
+  updateTestPanelUI();
+  saveGame();
+};
+
+function toggleTestPanel() {
+  if (!isNearTestPanel()) return;
+
+  const visible = testPanelUI.style.display === 'block';
+  testPanelUI.style.display = visible ? 'none' : 'block';
+  marketPrompt.style.display = 'none';
+
+  if (!visible) updateTestPanelUI();
+}
+
+window.toggleTestPanel = toggleTestPanel;
 
 function toggleShop() {
   if (!isNearMarket()) return;
