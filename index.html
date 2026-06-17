@@ -33,6 +33,19 @@ body { margin: 0; overflow: hidden; font-family: Arial; }
   padding: 8px 12px;
   border-radius: 6px;
 }
+#marketPrompt {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  z-index: 20;
+  background: rgba(0,0,0,0.72);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 18px;
+  display: none;
+}
 #castMeter {
   position: absolute;
   bottom: 40px;
@@ -91,13 +104,14 @@ WASD = move<br>
 Hold Left Click = build power & cast<br>
 Release = cast | Hold Left Click again = reel back<br>
 1-5 = Change bait<br>
-I = Inventory | B = Shop | U = Unlock Cursor<br>
+I = Inventory | E = Enter Market | U = Unlock Cursor<br>
 Bait:
 <select id="bait-select"></select><br>
 Starter bait: 20 Old Worms = small cheap fish only.<br>
 Progress saves automatically.
 </div>
 <div id="tension">Tension: 0</div>
+<div id="marketPrompt">Press E to enter market</div>
 <div id="castMeter">
   <div id="castBar"></div>
 </div>
@@ -285,32 +299,400 @@ smile.rotation.z = Math.PI;
 scene.add(smile);
 
 /* ROD */
-const rod = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.02, 0.03, 2.8, 8),
-  new THREE.MeshStandardMaterial({ color: 0x8b5a2b })
-);
-rod.position.set(0.42, -0.48, -1.0);
+function createDetailedFishingRod() {
+  const rodModel = new THREE.Group();
+
+  const woodMaterial = new THREE.MeshStandardMaterial({ color: 0x6b3f1f, roughness: 0.8 });
+  const darkWoodMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2414, roughness: 0.85 });
+  const ropeMaterial = new THREE.MeshStandardMaterial({ color: 0xb49a6a, roughness: 0.9 });
+  const metalMaterial = new THREE.MeshStandardMaterial({ color: 0xb8b8b8, metalness: 0.65, roughness: 0.28 });
+  const darkMetalMaterial = new THREE.MeshStandardMaterial({ color: 0x202020, metalness: 0.45, roughness: 0.35 });
+
+  // Main tapered wooden rod blank
+  const rodBlank = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.008, 0.032, 4.2, 14),
+    darkWoodMaterial
+  );
+  rodBlank.position.y = 0.72;
+  rodModel.add(rodBlank);
+
+  // Cork/wood handle
+  const handle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.07, 0.62, 16),
+    woodMaterial
+  );
+  handle.position.y = -1.2;
+  rodModel.add(handle);
+
+  // Rear butt cap
+  const buttCap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.073, 0.073, 0.08, 16),
+    darkMetalMaterial
+  );
+  buttCap.position.y = -1.55;
+  rodModel.add(buttCap);
+
+  // Metal reel seat
+  const reelSeat = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.048, 0.32, 16),
+    metalMaterial
+  );
+  reelSeat.position.y = -0.62;
+  rodModel.add(reelSeat);
+
+  // Rope wraps around handle and reel seat
+  [-1.42, -1.32, -1.22, -1.12, -1.02, -0.68, -0.56].forEach(y => {
+    const wrap = new THREE.Mesh(
+      new THREE.TorusGeometry(0.052, 0.0045, 8, 24),
+      ropeMaterial
+    );
+    wrap.rotation.x = Math.PI / 2;
+    wrap.position.y = y;
+    rodModel.add(wrap);
+  });
+
+  // Line guides along the rod: big near the reel, smaller toward the tip
+  const guideData = [
+    { y: -0.22, r: 0.07, footZ: -0.048, thickness: 0.006 },
+    { y: 0.22, r: 0.058, footZ: -0.046, thickness: 0.0055 },
+    { y: 0.72, r: 0.048, footZ: -0.043, thickness: 0.005 },
+    { y: 1.18, r: 0.039, footZ: -0.04, thickness: 0.0046 },
+    { y: 1.6, r: 0.031, footZ: -0.037, thickness: 0.0042 },
+    { y: 1.96, r: 0.023, footZ: -0.033, thickness: 0.0038 },
+    { y: 2.28, r: 0.017, footZ: -0.03, thickness: 0.0034 },
+    { y: 2.54, r: 0.013, footZ: -0.027, thickness: 0.0032 }
+  ];
+
+  guideData.forEach(g => {
+    const guide = new THREE.Mesh(
+      new THREE.TorusGeometry(g.r, g.thickness, 8, 24),
+      metalMaterial
+    );
+    guide.rotation.x = Math.PI / 2;
+    guide.position.set(0, g.y, -0.075);
+    rodModel.add(guide);
+
+    const guideFoot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.004, 0.004, 0.09, 8),
+      darkMetalMaterial
+    );
+    guideFoot.rotation.x = Math.PI / 2;
+    guideFoot.position.set(0, g.y - 0.015, g.footZ);
+    rodModel.add(guideFoot);
+  });
+
+  const tipGuide = new THREE.Mesh(
+    new THREE.TorusGeometry(0.01, 0.003, 8, 20),
+    metalMaterial
+  );
+  tipGuide.rotation.x = Math.PI / 2;
+  tipGuide.position.set(0, 2.76, -0.075);
+  rodModel.add(tipGuide);
+
+  const tipGuideFoot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0032, 0.0032, 0.075, 8),
+    darkMetalMaterial
+  );
+  tipGuideFoot.rotation.x = Math.PI / 2;
+  tipGuideFoot.position.set(0, 2.74, -0.026);
+  rodModel.add(tipGuideFoot);
+
+  return rodModel;
+}
+
+const rod = createDetailedFishingRod();
+rod.scale.set(0.84, 0.84, 0.84);
+rod.position.set(0.30, -0.60, -0.88);
 rod.rotation.set(-1.35, 0.12, -0.18);
 
 const rodGroup = new THREE.Group();
 rodGroup.add(rod);
 camera.add(rodGroup);
 
+let rodFollowAmount = 0;
+
+function updateRodFollow(frameScale = 1) {
+  const cameraPitch = camera.rotation.x;
+
+  // Stable rod follow:
+  // - starts correcting sooner when looking down,
+  // - clamps instead of over-rotating,
+  // - smooths movement so it does not jitter when moving camera up/down/sideways.
+  const downThreshold = -0.06;
+  const targetFollow = cameraPitch < downThreshold
+    ? Math.min((-cameraPitch + downThreshold) * 0.82, 0.42)
+    : 0;
+
+  rodFollowAmount += (targetFollow - rodFollowAmount) * Math.min(0.22 * frameScale, 1);
+
+  rodGroup.rotation.set(rodFollowAmount, 0, 0);
+  rodGroup.position.set(0, rodFollowAmount * 0.035, 0);
+}
+
 /* FISHING LINE */
 let fishingLine = null;
-function createFishingLine() {
-  if (fishingLine) camera.remove(fishingLine);
-  const points = [new THREE.Vector3(0.55, -0.65, -1.05), new THREE.Vector3(0,0,0)];
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  fishingLine = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xdddddd }));
-  camera.add(fishingLine);
+
+function getBobberWorldPosition() {
+  if (!bobber) return null;
+
+  // Connect the line to the top of the float instead of its center.
+  if (bobber.localToWorld) {
+    return bobber.localToWorld(new THREE.Vector3(0, 0.42, 0));
+  }
+
+  return bobber.getWorldPosition(new THREE.Vector3());
 }
+
+function getRodTipWorldPosition() {
+  return rod.localToWorld(new THREE.Vector3(0, 2.76, -0.075));
+}
+
+function getRodLinePoints(targetWorldPoint) {
+  const rodPathLocal = [
+    new THREE.Vector3(0.48, -0.54, 0.18),
+    new THREE.Vector3(0, -0.22, -0.075),
+    new THREE.Vector3(0, 0.22, -0.075),
+    new THREE.Vector3(0, 0.72, -0.075),
+    new THREE.Vector3(0, 1.18, -0.075),
+    new THREE.Vector3(0, 1.6, -0.075),
+    new THREE.Vector3(0, 1.96, -0.075),
+    new THREE.Vector3(0, 2.28, -0.075),
+    new THREE.Vector3(0, 2.54, -0.075),
+    new THREE.Vector3(0, 2.76, -0.075)
+  ];
+
+  const points = rodPathLocal.map(point => rod.localToWorld(point.clone()));
+  points.push(targetWorldPoint.clone());
+  return points;
+}
+
+function createFishingLine() {
+  if (fishingLine) scene.remove(fishingLine);
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(),
+    new THREE.Vector3(0, 0, -1)
+  ]);
+  fishingLine = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({ color: 0xe6e6e6 })
+  );
+  scene.add(fishingLine);
+}
+
 function updateFishingLine() {
   if (!fishingLine || !bobber) return;
-  const rodTip = new THREE.Vector3(0.55, -0.65, -1.05).applyMatrix4(camera.matrixWorld);
-  const points = [rodTip, bobber.position];
+  const bobberWorld = getBobberWorldPosition();
+  if (!bobberWorld) return;
+  const points = getRodLinePoints(bobberWorld);
   fishingLine.geometry.setFromPoints(points);
   fishingLine.geometry.attributes.position.needsUpdate = true;
+}
+
+function createFishingFloat() {
+  const floatGroup = new THREE.Group();
+
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.65 });
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: 0xff5a1f, roughness: 0.55 });
+  const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.7 });
+
+  const mainBody = new THREE.Mesh(
+    new THREE.SphereGeometry(0.09, 18, 18),
+    bodyMaterial
+  );
+  mainBody.scale.set(0.78, 1.18, 0.78);
+  mainBody.position.y = 0.02;
+  floatGroup.add(mainBody);
+
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.024, 0.03, 0.12, 14),
+    bodyMaterial
+  );
+  neck.position.y = 0.12;
+  floatGroup.add(neck);
+
+  const topStem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.014, 0.24, 12),
+    accentMaterial
+  );
+  topStem.position.y = 0.28;
+  floatGroup.add(topStem);
+
+  const topTip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 12, 12),
+    accentMaterial
+  );
+  topTip.position.y = 0.41;
+  floatGroup.add(topTip);
+
+  const stripe = new THREE.Mesh(
+    new THREE.TorusGeometry(0.048, 0.01, 10, 22),
+    darkMaterial
+  );
+  stripe.rotation.x = Math.PI / 2;
+  stripe.position.y = 0.11;
+  floatGroup.add(stripe);
+
+  const bottomStem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.009, 0.011, 0.2, 12),
+    darkMaterial
+  );
+  bottomStem.position.y = -0.16;
+  floatGroup.add(bottomStem);
+
+  const bottomTip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.013, 10, 10),
+    darkMaterial
+  );
+  bottomTip.position.y = -0.27;
+  floatGroup.add(bottomTip);
+
+  floatGroup.scale.set(0.74, 0.74, 0.74);
+  return floatGroup;
+}
+
+function attachIdleTackle() {
+  if (bobber && bobber.parent) {
+    bobber.parent.remove(bobber);
+  }
+
+  bobber = createFishingFloat();
+  scene.add(bobber);
+  surfaceTarget.set(0, 0, 0);
+  hangVelocity.set(0, 0, 0);
+  floatHasLanded = false;
+  floatIsDangling = false;
+  updateIdleTackle();
+
+  if (!fishingLine) {
+    createFishingLine();
+  }
+  updateFishingLine();
+}
+
+function updateIdleTackle() {
+  if (state !== "idle" || !bobber) return;
+
+  const tipWorld = getRodTipWorldPosition();
+
+  // Idle float hangs further down from the rod tip and stays upright.
+  bobber.position.copy(tipWorld);
+  bobber.position.y -= 0.95;
+  bobber.rotation.set(0, 0, 0);
+}
+
+function updateDanglingFloat(frameScale = 1) {
+  if (!bobber) return;
+
+  floatIsDangling = true;
+
+  const tipWorld = getRodTipWorldPosition();
+  const target = tipWorld.clone();
+  target.y -= lineLength;
+
+  // A simple spring + damping makes the float lag a bit and dangle
+  // when the player moves the rod side to side.
+  const pull = target.clone().sub(bobber.position).multiplyScalar(0.08 * frameScale);
+  hangVelocity.add(pull);
+  hangVelocity.multiplyScalar(Math.pow(0.84, frameScale));
+  bobber.position.add(hangVelocity.clone().multiplyScalar(frameScale));
+
+  const offset = bobber.position.clone().sub(tipWorld);
+  if (offset.length() > lineLength) {
+    offset.setLength(lineLength);
+    bobber.position.copy(tipWorld).add(offset);
+    hangVelocity.multiplyScalar(0.7);
+  }
+
+  // Keep the float below the tip and upright while hanging.
+  if (bobber.position.y > tipWorld.y - 0.05) {
+    bobber.position.y = tipWorld.y - 0.05;
+  }
+  bobber.rotation.set(0, 0, 0);
+}
+
+function updateFreeFloatPhysics(frameScale = 1) {
+  if (!bobber || !floatHasLanded) return;
+
+  const tipWorld = getRodTipWorldPosition();
+  const waterY = WATER_Y + 0.05;
+  const verticalToWater = Math.max(0, tipWorld.y - waterY);
+
+  if (!lineLength || lineLength < 0.1) {
+    lineLength = tipWorld.distanceTo(bobber.position);
+  }
+
+  // If the rod gets lifted high enough for the current line length,
+  // the float leaves the water and hangs under the rod.
+  if (lineLength <= verticalToWater + 0.02) {
+    updateDanglingFloat(frameScale);
+    return;
+  }
+
+  // If the float was dangling and the player lowers the rod again,
+  // put it onto the water under the CURRENT rod tip position.
+  if (floatIsDangling) {
+    surfaceTarget.set(tipWorld.x, waterY, tipWorld.z);
+    hangVelocity.set(0, 0, 0);
+    floatIsDangling = false;
+  } else if (surfaceTarget.lengthSq() < 0.0001) {
+    surfaceTarget.set(bobber.position.x, waterY, bobber.position.z);
+  }
+
+  bobber.position.set(surfaceTarget.x, waterY, surfaceTarget.z);
+  bobber.rotation.set(0, 0, 0);
+}
+
+function applyFloatLinePhysics(reelAmount = 0, frameScale = 1) {
+  if (!bobber) return false;
+
+  const tipWorld = getRodTipWorldPosition();
+  const waterY = WATER_Y + 0.05;
+
+  if (!lineLength || lineLength < 0.1) {
+    lineLength = tipWorld.distanceTo(bobber.position);
+  }
+
+  if (reelAmount > 0) {
+    lineLength = Math.max(0.55, lineLength - reelAmount);
+  }
+
+  // If the float has already landed and the rod is now high enough,
+  // lift the float out of the water and let it dangle.
+  const verticalToWater = Math.max(0, tipWorld.y - waterY);
+  if (floatHasLanded && lineLength <= verticalToWater + 0.02) {
+    updateDanglingFloat(frameScale);
+    return lineLength <= 0.6;
+  }
+
+  // If the float has not landed yet, do not override the cast flight.
+  if (!floatHasLanded) {
+    return false;
+  }
+
+  // If it was dangling and now comes back to the water while reeling,
+  // place it under the CURRENT rod tip instead of the previous water spot.
+  if (floatIsDangling) {
+    surfaceTarget.set(tipWorld.x, waterY, tipWorld.z);
+    hangVelocity.set(0, 0, 0);
+    floatIsDangling = false;
+  } else if (surfaceTarget.lengthSq() < 0.0001) {
+    surfaceTarget.set(bobber.position.x, waterY, bobber.position.z);
+  }
+
+  // Pull the float across the water toward the rod tip's projection on the water.
+  const tipSurface = new THREE.Vector3(tipWorld.x, waterY, tipWorld.z);
+  const toTip = tipSurface.clone().sub(surfaceTarget);
+  const moveStep = Math.min(toTip.length(), Math.max(0.03, reelAmount * 1.8));
+
+  if (moveStep > 0.0001) {
+    toTip.normalize().multiplyScalar(moveStep);
+    surfaceTarget.add(toTip);
+  }
+
+  bobber.position.set(surfaceTarget.x, waterY, surfaceTarget.z);
+  bobber.rotation.set(0, 0, 0);
+
+  return surfaceTarget.distanceTo(tipSurface) < 0.35 && lineLength <= verticalToWater + 0.18;
 }
 
 /* BAITS */
@@ -497,6 +879,11 @@ function updateBaitUI() {
 let bobber = null, fishMesh = null, velocity = new THREE.Vector3();
 let state = "idle";
 let biteTimer = 0, biteActionTimer = 0, tension = 0, bobPhase = 0, castPower = 0;
+let lineLength = 0;
+let floatHasLanded = false;
+let floatIsDangling = false;
+let surfaceTarget = new THREE.Vector3();
+let hangVelocity = new THREE.Vector3();
 let currentFishType = null;
 let money = 0, inventory = [];
 let keys = {};
@@ -512,12 +899,15 @@ const inventoryList = document.getElementById("inventory-list");
 const shopUI = document.getElementById("shop");
 const shopMoney = document.getElementById("shop-money");
 const shopList = document.getElementById("shop-list");
+const marketPrompt = document.getElementById("marketPrompt");
 const baitSelect = document.getElementById("bait-select");
 
 /* SAVE SYSTEM */
 const SAVE_KEY = "lithuanianFloatFishingSave_v1";
+let saveDisabled = false;
 
 function saveGame() {
+  if (saveDisabled) return;
   const saveData = {
     version: 1,
     money,
@@ -557,7 +947,25 @@ function loadGame() {
 
 window.deleteSave = function() {
   if (!confirm("Delete your saved progress and restart?")) return;
+
+  saveDisabled = true;
+
+  // Remove current and older save keys, so older versions cannot reload old progress.
   localStorage.removeItem(SAVE_KEY);
+  localStorage.removeItem("fishingGameSave");
+
+  money = 0;
+  inventory = [];
+  selectedBait = "Old Worm";
+
+  Object.keys(baitStock).forEach(bait => {
+    baitStock[bait] = bait === "Old Worm" ? 20 : 0;
+  });
+
+  updateBaitUI();
+  updateInventoryUI();
+  updateShopUI();
+
   location.reload();
 };
 
@@ -641,8 +1049,20 @@ function releaseCast() {
   updateBaitUI();
   saveGame();
 
-  resetFishing(false);
-  bobber = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
+  if (bobber && bobber.parent) {
+    bobber.parent.remove(bobber);
+  }
+  if (fishingLine) {
+    scene.remove(fishingLine);
+    fishingLine = null;
+  }
+  if (fishMesh) scene.remove(fishMesh);
+  fishMesh = null;
+  tension = 0;
+  biteTimer = 0;
+  biteActionTimer = 0;
+
+  bobber = createFishingFloat();
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   bobber.position.copy(camera.position);
@@ -651,6 +1071,11 @@ function releaseCast() {
   velocity.copy(dir.multiplyScalar(0.2 * power));
   velocity.y += 0.13 * power;
   scene.add(bobber);
+  lineLength = getRodTipWorldPosition().distanceTo(bobber.position);
+  floatHasLanded = false;
+  floatIsDangling = false;
+  surfaceTarget.set(0, 0, 0);
+  hangVelocity.set(0, 0, 0);
   createFishingLine();
   biteTimer = 5 + Math.random() * 55;
   biteActionTimer = 0;
@@ -694,7 +1119,7 @@ addEventListener('keydown', e => {
   }
 
   if (e.code === 'KeyI') toggleInventory();
-  if (e.code === 'KeyB') toggleShop();
+  if (e.code === 'KeyE' && isNearMarket()) toggleShop();
   if (e.code === 'KeyU') controls.unlock();
 });
 addEventListener('keyup', e => keys[e.code] = false);
@@ -773,12 +1198,22 @@ function moveWithCollision(forwardAmount, rightAmount) {
 }
 
 /* ANIMATE */
+let lastFrameTime = 0;
 let time = 0;
-function animate() {
-  requestAnimationFrame(animate);
-  time += 0.016;
 
-  const speed = 0.08;
+function animate(now = 0) {
+  requestAnimationFrame(animate);
+
+  if (!lastFrameTime) {
+    lastFrameTime = now;
+  }
+
+  const deltaTime = Math.min((now - lastFrameTime) / 1000, 0.05);
+  const frameScale = deltaTime * 60;
+  lastFrameTime = now;
+  time += deltaTime;
+
+  const speed = 0.08 * frameScale;
   let forwardMove = 0;
   let rightMove = 0;
 
@@ -788,6 +1223,8 @@ function animate() {
   if (keys['KeyD']) rightMove += speed;
 
   moveWithCollision(forwardMove, rightMove);
+  updateMarketPrompt();
+  updateRodFollow(frameScale);
 
   if (isCasting) {
     // Cancel instantly if the player moves the aim away from the pond while charging
@@ -798,7 +1235,7 @@ function animate() {
       castMeter.style.display = 'none';
       rod.rotation.x = -1.35;
     } else {
-      castPower = Math.min(castPower + 1.9, 130);
+      castPower = Math.min(castPower + 1.9 * frameScale, 130);
       castBar.style.width = (castPower / 130 * 100) + '%';
       const bendAmount = Math.min(castPower / 130, 1) * 1.4;
       rod.rotation.x = -1.35 + bendAmount;
@@ -809,41 +1246,45 @@ function animate() {
 
   if (bobber && state === "floating") {
     if (mouseDown) {
-      // Reel the bobber back in even when no fish is hooked
-      const dir = new THREE.Vector3().subVectors(camera.position, bobber.position);
-      const dist = dir.length();
-      dir.normalize();
-      bobber.position.add(dir.multiplyScalar(0.18));
+      // Reel the float across the surface first; once the line becomes short
+      // enough, the float lifts out and dangles below the rod.
+      const reeledIn = applyFloatLinePhysics(0.18 * frameScale, frameScale);
       velocity.set(0, 0, 0);
-      bobber.position.y = Math.max(bobber.position.y, WATER_Y + 0.05);
 
-      if (dist < 1.3) {
+      if (reeledIn) {
         resetFishing();
       }
     } else {
-      velocity.y -= 0.01;
-      bobber.position.add(velocity);
+      if (!floatHasLanded) {
+        // During the cast, keep true projectile flight until the float lands.
+        velocity.y -= 0.01 * frameScale;
+        bobber.position.add(velocity.clone().multiplyScalar(frameScale));
+        velocity.multiplyScalar(Math.pow(0.982, frameScale));
 
-      if (bobber.position.y <= WATER_Y + 0.05) {
-        // Before a bite, keep the float still on the water.
-        // It only starts bobbing after the random bite timer finishes.
-        bobber.position.y = WATER_Y + 0.05;
-        velocity.set(0, 0, 0);
-      }
-
-      velocity.multiplyScalar(0.982);
-      biteTimer -= 0.016;
-      if (biteTimer <= 0) {
-        biteActionTimer = 2.0;
-        bobPhase = Math.random() * 10;
-        state = "biting";
+        if (bobber.position.y <= WATER_Y + 0.05) {
+          bobber.position.y = WATER_Y + 0.05;
+          velocity.set(0, 0, 0);
+          floatHasLanded = true;
+          lineLength = Math.max(lineLength, getRodTipWorldPosition().distanceTo(bobber.position));
+          surfaceTarget.set(bobber.position.x, WATER_Y + 0.05, bobber.position.z);
+        }
+      } else {
+        // After landing, let the float either rest on the water or hang if the
+        // rod is lifted high enough.
+        updateFreeFloatPhysics(frameScale);
+        biteTimer -= deltaTime;
+        if (biteTimer <= 0) {
+          biteActionTimer = 2.0;
+          bobPhase = Math.random() * 10;
+          state = "biting";
+        }
       }
     }
   }
 
   if (state === "biting" && bobber) {
     // Bite animation: the float bobs for a short moment, then goes under.
-    biteActionTimer -= 0.016;
+    biteActionTimer -= deltaTime;
     bobber.position.y = WATER_Y + 0.03 + Math.sin(time * 22 + bobPhase) * 0.09;
 
     if (biteActionTimer <= 0.45) {
@@ -857,21 +1298,20 @@ function animate() {
 
   if (state === "hooked" && bobber) {
     if (mouseDown) {
-      tension += 0.32;
-      const dir = new THREE.Vector3().subVectors(camera.position, bobber.position);
-      const dist = dir.length();
-      dir.normalize();
-      bobber.position.add(dir.multiplyScalar(0.22));
+      tension += 0.32 * frameScale;
+      const reeledIn = applyFloatLinePhysics(0.22 * frameScale, frameScale);
+
       if (fishMesh) {
-        fishMesh.position.lerp(bobber.position, 0.25);
+        fishMesh.position.lerp(bobber.position, Math.min(0.25 * frameScale, 1));
         fishMesh.position.y = bobber.position.y - 0.35;
       }
-      if (dist < 1.3) {
+
+      if (reeledIn) {
         addToInventory();
         resetFishing();
       }
     } else {
-      tension = Math.max(0, tension - 0.08);
+      tension = Math.max(0, tension - 0.08 * frameScale);
     }
     if (tension > 18) {
       alert("💥 Line broke!");
@@ -879,6 +1319,7 @@ function animate() {
     }
   }
 
+  if (state === "idle" && bobber) updateIdleTackle();
   if (fishingLine) updateFishingLine();
 
   uiTension.textContent = `Tension: ${tension.toFixed(1)}`;
@@ -887,15 +1328,23 @@ function animate() {
 
 /* INVENTORY & SHOP */
 function resetFishing(clearActiveBait = true) {
-  if (bobber) scene.remove(bobber);
+  if (bobber && bobber.parent) bobber.parent.remove(bobber);
   if (fishMesh) scene.remove(fishMesh);
-  if (fishingLine) camera.remove(fishingLine);
-  bobber = fishMesh = fishingLine = null;
+  if (fishingLine) scene.remove(fishingLine);
+  bobber = null;
+  fishMesh = null;
+  fishingLine = null;
   tension = 0;
   biteTimer = 0;
   biteActionTimer = 0;
+  lineLength = 0;
+  floatHasLanded = false;
+  floatIsDangling = false;
+  surfaceTarget.set(0, 0, 0);
+  hangVelocity.set(0, 0, 0);
   state = "idle";
   if (clearActiveBait) activeBait = null;
+  attachIdleTackle();
 }
 function addToInventory() {
   if (!currentFishType) return;
@@ -1016,21 +1465,35 @@ function toggleInventory() {
   inventoryUI.style.display = visible ? 'none' : 'block';
   if (!visible) updateInventoryUI();
 }
-function toggleShop() {
-  const dist = camera.position.distanceTo(new THREE.Vector3(12, 1.6, -8));
-  if (dist > 7) {
-    alert("Walk closer to the brown shop building!");
-    return;
+function isNearMarket() {
+  return camera.position.distanceTo(new THREE.Vector3(12, 1.6, -8)) <= 5.5;
+}
+
+function updateMarketPrompt() {
+  if (isNearMarket() && !isUIVisible()) {
+    marketPrompt.style.display = 'block';
+  } else {
+    marketPrompt.style.display = 'none';
   }
+}
+
+function toggleShop() {
+  if (!isNearMarket()) return;
+
   const visible = shopUI.style.display === 'block';
   shopUI.style.display = visible ? 'none' : 'block';
+  marketPrompt.style.display = 'none';
+
   if (!visible) updateShopUI();
 }
 
 /* START */
 camera.position.set(0, 1.6, 8);
+attachIdleTackle();
 setInterval(saveGame, 3000);
-window.addEventListener('beforeunload', saveGame);
+window.addEventListener('beforeunload', () => {
+  if (!saveDisabled) saveGame();
+});
 animate();
 
 /* RESIZE */
